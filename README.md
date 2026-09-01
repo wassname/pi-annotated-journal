@@ -3,7 +3,7 @@
 Annotate recent Pi messages in `$VISUAL` or `$EDITOR`, and keep the feedback in a Markdown journal.
 
 ```bash
-pi install git:github.com/wassname2/pi-annotated-journal
+pi install git:github.com/wassname/pi-annotated-journal
 ```
 
 ```text

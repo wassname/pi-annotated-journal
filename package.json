@@ -32,5 +32,13 @@
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wassname/pi-annotated-journal.git"
+  },
+  "homepage": "https://github.com/wassname/pi-annotated-journal#readme",
+  "bugs": {
+    "url": "https://github.com/wassname/pi-annotated-journal/issues"
   }
 }
