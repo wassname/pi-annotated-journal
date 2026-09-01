@@ -1,0 +1,36 @@
+{
+  "name": "pi-annotated-journal",
+  "version": "0.1.0",
+  "description": "Annotate recent Pi conversation turns and keep the feedback in a Markdown journal",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "annotation",
+    "human-in-the-loop",
+    "supervision"
+  ],
+  "bin": {
+    "pi-supervision-export": "./scripts/export-supervision.mjs"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.84.2",
+    "@types/node": "^24.3.0",
+    "typescript": "^5.7.3"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test"
+  }
+}
