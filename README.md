@@ -11,7 +11,7 @@ Pi opens a Markdown transcript. Every source line is blockquoted. Add feedback a
 
 1. appends the annotated transcript to `docs/human_journal.md`;
 2. records the journal entry in the Pi session; and
-3. submits the annotated transcript as the next user message.
+3. sends the annotated transcript to the model as hidden context and starts the next turn.
 
 No feedback is saved or sent when the document has no unquoted annotations. An editor error also cancels the operation. If `$VISUAL` and `$EDITOR` are unset, the command uses Pi's built-in editor.
 

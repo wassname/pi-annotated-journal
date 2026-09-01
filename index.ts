@@ -11,7 +11,6 @@ import {
 	buildPrompt,
 	extractAnnotations,
 	journalHeader,
-	templateMessageIds,
 	type ConversationMessage,
 	type ConversationRole,
 	type JournalRecordMetadata,
@@ -180,12 +179,7 @@ export default function (pi: ExtensionAPI) {
 
 			let annotations;
 			try {
-				const expectedIds = messages.map((message) => message.id);
-				const actualIds = templateMessageIds(edited.edited);
-				if (JSON.stringify(actualIds) !== JSON.stringify(expectedIds)) {
-					throw new Error("Message markers were removed or reordered. Re-run /annotate and keep the HTML markers.");
-				}
-				annotations = extractAnnotations(edited.edited);
+				annotations = extractAnnotations(edited.edited, messages.map((message) => message.id));
 			} catch (error) {
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 				return;
@@ -223,7 +217,15 @@ export default function (pi: ExtensionAPI) {
 
 			const prompt = buildPrompt(edited.edited);
 			try {
-				pi.sendUserMessage(prompt);
+				pi.sendMessage(
+					{
+						customType: "pi-annotated-journal",
+						content: prompt,
+						display: false,
+						details: { recordId: metadata.recordId },
+					},
+					{ triggerTurn: true },
+				);
 				ctx.ui.notify(`Saved ${annotations.length} annotation${annotations.length === 1 ? "" : "s"} to ${path}.`, "info");
 			} catch (error) {
 				ctx.ui.setEditorText(prompt);

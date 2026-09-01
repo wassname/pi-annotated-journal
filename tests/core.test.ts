@@ -16,16 +16,25 @@ const messages: ConversationMessage[] = [
 	{ id: "asst0001", role: "assistant", timestamp: "2026-09-01T00:00:01.000Z", text: "answer line one\nanswer line two" },
 ];
 
+const messageIds = messages.map((message) => message.id);
+
 test("quoteMarkdown quotes every source line, including blanks and existing quotes", () => {
 	assert.equal(quoteMarkdown(messages[0].text), "> first line\n>\n> > nested quote");
 });
 
+test("template is only one heading and quoted messages separated by a rule", () => {
+	assert.equal(
+		buildAnnotationTemplate(messages),
+		"# Annotate\n\n> User: first line\n>\n> > nested quote\n\n---\n\n> Assistant: answer line one\n> answer line two\n",
+	);
+});
+
 test("extractAnnotations returns unquoted blocks with message and line anchors", () => {
 	const template = buildAnnotationTemplate(messages)
-		.replace("> first line", "> first line\nthis assumption is wrong")
+		.replace("> User: first line", "> User: first line\nthis assumption is wrong")
 		.replace("> answer line two", "> answer line two\n\nuse the earlier value instead\nand rerun the test");
 
-	assert.deepEqual(extractAnnotations(template), [
+	assert.deepEqual(extractAnnotations(template, messageIds), [
 		{ messageId: "user0001", role: "user", afterSourceLine: 1, text: "this assumption is wrong" },
 		{
 			messageId: "asst0001",
@@ -36,20 +45,17 @@ test("extractAnnotations returns unquoted blocks with message and line anchors",
 	]);
 });
 
-test("generated headings and instructions are not annotations", () => {
-	assert.deepEqual(extractAnnotations(buildAnnotationTemplate(messages)), []);
+test("heading and separators are not annotations", () => {
+	assert.deepEqual(extractAnnotations(buildAnnotationTemplate(messages), messageIds), []);
 });
 
-test("removed body or message markers fail instead of silently losing annotation anchors", () => {
-	assert.throws(() => extractAnnotations("no markers"), /markers were removed or reordered/);
-	assert.throws(
-		() => extractAnnotations("<!-- pi-annotate-body -->\nfeedback\n<!-- /pi-annotate-body -->"),
-		/message markers were removed/,
-	);
+test("changed separators fail instead of silently losing annotation anchors", () => {
+	const edited = buildAnnotationTemplate(messages).replace("\n---\n", "\n");
+	assert.throws(() => extractAnnotations(edited, messageIds), /separators were changed/);
 });
 
 test("journal records retain metadata and parsed annotations", () => {
-	const edited = buildAnnotationTemplate(messages).replace("> answer line one", "> answer line one\ncheck this number");
+	const edited = buildAnnotationTemplate(messages).replace("> Assistant: answer line one", "> Assistant: answer line one\ncheck this number");
 	const metadata = {
 		schema: 1 as const,
 		recordId: "record-1",
@@ -57,7 +63,7 @@ test("journal records retain metadata and parsed annotations", () => {
 		sessionId: "session-1",
 		sessionFile: "/tmp/session.jsonl",
 		cwd: "/tmp/project",
-		messageIds: messages.map((message) => message.id),
+		messageIds,
 	};
 	const journal = journalHeader() + buildJournalRecord(metadata, edited);
 	const parsed = parseJournalRecords(journal);
@@ -69,7 +75,7 @@ test("journal records retain metadata and parsed annotations", () => {
 	]);
 });
 
-test("source text that resembles structural markers cannot truncate a record", () => {
+test("source text that resembles journal markers cannot truncate a record", () => {
 	const markerMessages: ConversationMessage[] = [{
 		id: "asst-marker",
 		role: "assistant",
@@ -92,11 +98,11 @@ test("source text that resembles structural markers cannot truncate a record", (
 	assert.equal(parseJournalRecords(journal)[0].annotations[0].text, "keep all source lines");
 });
 
-test("prompt contains only the annotated conversation", () => {
-	const prompt = buildPrompt(buildAnnotationTemplate(messages));
-	assert.match(prompt, /^## User/);
-	assert.match(prompt, /## Assistant/);
-	assert.match(prompt, /> answer line one/);
-	assert.doesNotMatch(prompt, /pi-annotate/);
-	assert.doesNotMatch(prompt, /user0001|asst0001/);
+test("prompt is exactly the edited transcript", () => {
+	const template = buildAnnotationTemplate(messages).replace("> answer line two", "> answer line two\nok test");
+	const prompt = buildPrompt(template);
+	assert.equal(prompt, template.trim());
+	assert.match(prompt, /^# Annotate/);
+	assert.match(prompt, /ok test/);
+	assert.doesNotMatch(prompt, /pi-annotate-message|user0001|asst0001/);
 });

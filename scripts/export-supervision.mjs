@@ -37,12 +37,15 @@ function decode(encoded) {
 	return JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
 }
 
-function parseAnnotations(template) {
-	const templateLines = template.replace(/\r\n/g, "\n").split("\n");
-	const start = templateLines.indexOf(BODY_START);
-	const end = templateLines.indexOf(BODY_END, start + 1);
+function annotationBody(record) {
+	const lines = record.replace(/\r\n/g, "\n").split("\n");
+	const start = lines.indexOf(BODY_START);
+	const end = lines.indexOf(BODY_END, start + 1);
 	if (start < 0 || end < 0 || end <= start) throw new Error("Malformed annotation body");
-	const body = templateLines.slice(start + 1, end).join("\n");
+	return lines.slice(start + 1, end).join("\n");
+}
+
+function parseLegacyAnnotations(body) {
 	const annotations = [];
 	let messageId = null;
 	let role = null;
@@ -54,7 +57,6 @@ function parseAnnotations(template) {
 		if (text) annotations.push({ messageId, role, afterSourceLine: pendingAfterLine, text });
 		pending = [];
 	};
-
 	for (const line of body.split("\n")) {
 		if (line.startsWith(MESSAGE_PREFIX) && line.endsWith(" -->")) {
 			flush();
@@ -64,13 +66,13 @@ function parseAnnotations(template) {
 			sourceLine = 0;
 			continue;
 		}
-		if ((line === "## User" && role === "user") || (line === "## Assistant" && role === "assistant")) continue;
+		if (line === "## User" || line === "## Assistant" || /^<!--.*-->$/.test(line.trim())) continue;
 		if (line.startsWith(">")) {
 			flush();
 			sourceLine += 1;
 			continue;
 		}
-		if (/^<!--.*-->$/.test(line.trim()) || line.trim() === "") {
+		if (line.trim() === "") {
 			flush();
 			continue;
 		}
@@ -79,6 +81,59 @@ function parseAnnotations(template) {
 	}
 	flush();
 	return annotations;
+}
+
+function parseCurrentAnnotations(body, messageIds) {
+	const annotations = [];
+	let sectionIndex = 0;
+	let role = null;
+	let sourceLine = 0;
+	let pending = [];
+	let pendingAfterLine = 0;
+	const flush = () => {
+		const text = pending.join("\n").trim();
+		if (text) annotations.push({
+			messageId: messageIds[sectionIndex] ?? null,
+			role,
+			afterSourceLine: pendingAfterLine,
+			text,
+		});
+		pending = [];
+	};
+	for (const line of body.split("\n")) {
+		if (line === "# Annotate") continue;
+		if (line === "---") {
+			flush();
+			sectionIndex += 1;
+			role = null;
+			sourceLine = 0;
+			continue;
+		}
+		if (line.startsWith(">")) {
+			flush();
+			if (sourceLine === 0) {
+				const match = line.match(/^> (User|Assistant):(?: |$)/);
+				role = match?.[1] === "User" ? "user" : match?.[1] === "Assistant" ? "assistant" : null;
+			}
+			sourceLine += 1;
+			continue;
+		}
+		if (line.trim() === "") {
+			flush();
+			continue;
+		}
+		if (pending.length === 0) pendingAfterLine = sourceLine;
+		pending.push(line);
+	}
+	flush();
+	return annotations;
+}
+
+function parseAnnotations(record, messageIds) {
+	const body = annotationBody(record);
+	return body.includes("<!-- pi-annotate-template:v1 -->")
+		? parseLegacyAnnotations(body)
+		: parseCurrentAnnotations(body, messageIds);
 }
 
 function parseJournal(path) {
@@ -91,7 +146,7 @@ function parseJournal(path) {
 		if (end < 0) throw new Error(`Unterminated journal record at line ${index + 1}`);
 		const metadata = decode(match[1]);
 		const template = lines.slice(index + 1, end).join("\n").trim();
-		records.push({ metadata, annotations: parseAnnotations(template) });
+		records.push({ metadata, annotations: parseAnnotations(template, metadata.messageIds ?? []) });
 		index = end;
 	}
 	return records;

@@ -5,13 +5,13 @@ import { join } from "node:path";
 import test from "node:test";
 import registerExtension from "../index.ts";
 
-test("/annotate journals feedback and sends it as the next user message", async () => {
+test("/annotate journals feedback and sends hidden model context", async () => {
 	const directory = mkdtempSync(join(tmpdir(), "pi-annotate-extension-"));
 	const previousJournal = process.env.PI_ANNOTATE_JOURNAL;
 	process.env.PI_ANNOTATE_JOURNAL = join(directory, "human_journal.md");
 	try {
 		const commands = new Map<string, { handler: (args: string, ctx: unknown) => Promise<void> }>();
-		const sent: string[] = [];
+		const sent: Array<{ message: { customType: string; content: string; display: boolean }; options: { triggerTurn: boolean } }> = [];
 		const entries: Array<{ type: string; data: unknown }> = [];
 		const pi = {
 			registerCommand(name: string, options: { handler: (args: string, ctx: unknown) => Promise<void> }) {
@@ -20,8 +20,11 @@ test("/annotate journals feedback and sends it as the next user message", async 
 			appendEntry(type: string, data: unknown) {
 				entries.push({ type, data });
 			},
-			sendUserMessage(prompt: string) {
-				sent.push(prompt);
+			sendMessage(
+				message: { customType: string; content: string; display: boolean },
+				options: { triggerTurn: boolean },
+			) {
+				sent.push({ message, options });
 			},
 		};
 		registerExtension(pi as never);
@@ -53,7 +56,7 @@ test("/annotate journals feedback and sends it as the next user message", async 
 				getSessionFile: () => join(directory, "session.jsonl"),
 			},
 			ui: {
-				editor: async (_title: string, prefill: string) => prefill.replace("> the answer", "> the answer\nthis needs evidence"),
+				editor: async (_title: string, prefill: string) => prefill.replace("> Assistant: the answer", "> Assistant: the answer\nthis needs evidence"),
 				notify: (text: string, level: string) => notices.push({ text, level }),
 				setEditorText: () => {},
 			},
@@ -62,8 +65,10 @@ test("/annotate journals feedback and sends it as the next user message", async 
 		await commands.get("annotate")?.handler("1", ctx);
 
 		assert.equal(sent.length, 1);
-		assert.match(sent[0], /this needs evidence/);
-		assert.doesNotMatch(sent[0], /> old question/);
+		assert.match(sent[0].message.content, /this needs evidence/);
+		assert.doesNotMatch(sent[0].message.content, /> old question/);
+		assert.equal(sent[0].message.display, false);
+		assert.equal(sent[0].options.triggerTurn, true);
 		assert.equal(entries.length, 1);
 		assert.equal(entries[0].type, "pi-annotate-journal");
 		const journal = readFileSync(process.env.PI_ANNOTATE_JOURNAL, "utf8");
