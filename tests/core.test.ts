@@ -92,8 +92,11 @@ test("source text that resembles structural markers cannot truncate a record", (
 	assert.equal(parseJournalRecords(journal)[0].annotations[0].text, "keep all source lines");
 });
 
-test("prompt explains the quote contract", () => {
+test("prompt contains only the annotated conversation", () => {
 	const prompt = buildPrompt(buildAnnotationTemplate(messages));
-	assert.match(prompt, /Unquoted text is my feedback/);
+	assert.match(prompt, /^## User/);
+	assert.match(prompt, /## Assistant/);
 	assert.match(prompt, /> answer line one/);
+	assert.doesNotMatch(prompt, /pi-annotate/);
+	assert.doesNotMatch(prompt, /user0001|asst0001/);
 });

@@ -171,11 +171,12 @@ export function extractAnnotations(markdown: string): Annotation[] {
 }
 
 export function buildPrompt(editedTemplate: string): string {
-	return [
-		"I annotated the recent conversation. Unquoted text is my feedback; blockquoted text is prior conversation. Apply the annotations as corrections or steering, then continue the work.",
-		"",
-		editedTemplate.trim(),
-	].join("\n");
+	const annotatedConversation = bodyFromTemplate(editedTemplate)
+		.split("\n")
+		.filter((line) => !/^<!-- pi-annotate-message:[A-Za-z0-9_-]+ -->$/.test(line))
+		.join("\n")
+		.trim();
+	return annotatedConversation;
 }
 
 export function buildJournalRecord(metadata: JournalRecordMetadata, editedTemplate: string): string {
