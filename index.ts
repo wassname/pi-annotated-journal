@@ -1,33 +1,19 @@
-import { BorderedLoader } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionCommandContext, SessionEntry } from "@earendil-works/pi-coding-agent";
-import { spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
-import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, resolve } from "node:path";
 import {
 	buildAnnotationTemplate,
-	buildJournalRecord,
-	buildPrompt,
 	buildUserMessageRecord,
-	extractAnnotations,
 	journalHeader,
 	type ConversationMessage,
 	type ConversationRole,
-	type JournalRecordMetadata,
 	type UserMessageRecordMetadata,
 } from "./src/core.ts";
 
 const DEFAULT_MESSAGE_COUNT = 6;
 const MAX_MESSAGE_COUNT = 100;
 const DEFAULT_JOURNAL_PATH = "docs/human_journal.md";
-
-type EditorResult =
-	| { ok: true; edited: string }
-	| { ok: false; cancelled: true }
-	| { ok: false; message: string };
-
-type ParsedEditor = { command: string; args: string[] };
 
 function parseCount(args: string): number | null {
 	const value = args.trim();
@@ -74,70 +60,21 @@ function recentConversation(ctx: ExtensionCommandContext, count: number): Conver
 		.slice(-count);
 }
 
-function parseEditorCommand(spec: string): ParsedEditor | null {
-	const tokens = spec.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g);
-	if (!tokens?.length) return null;
-	const unquote = (token: string) => {
-		if (token.length >= 2 && ((token.startsWith('"') && token.endsWith('"')) || (token.startsWith("'") && token.endsWith("'")))) {
-			return token.slice(1, -1);
+function copyToClipboard(text: string, useOsc52: boolean): void {
+	const errors: string[] = [];
+	for (const [command, args] of [["pbcopy", []], ["wl-copy", []], ["xclip", ["-selection", "clipboard"]]] as Array<[string, string[]]>) {
+		try {
+			execFileSync(command, args, { input: text, stdio: ["pipe", "ignore", "pipe"] });
+			return;
+		} catch (error) {
+			errors.push(`${command}: ${error instanceof Error ? error.message : String(error)}`);
 		}
-		return token;
-	};
-	const command = unquote(tokens[0] ?? "").trim();
-	if (!command) return null;
-	return { command, args: tokens.slice(1).map(unquote) };
-}
-
-async function editExternally(ctx: ExtensionCommandContext, prefill: string, commandSpec: string): Promise<EditorResult> {
-	const editor = parseEditorCommand(commandSpec);
-	if (!editor) return { ok: false, message: `Could not parse $VISUAL/$EDITOR: ${commandSpec}` };
-
-	const result = await ctx.ui.custom<EditorResult>((tui, theme, _keybindings, done) => {
-		const loader = new BorderedLoader(tui, theme, `Opening ${editor.command}...`);
-		let settled = false;
-		const finish = (value: EditorResult) => {
-			if (settled) return;
-			settled = true;
-			done(value);
-		};
-		loader.onAbort = () => finish({ ok: false, cancelled: true });
-
-		void Promise.resolve().then(() => {
-			const tempDirectory = mkdtempSync(join(tmpdir(), "pi-annotate-"));
-			const tempFile = join(tempDirectory, "annotation.md");
-			let tuiStopped = false;
-			try {
-				writeFileSync(tempFile, prefill, { encoding: "utf8", mode: 0o600 });
-				if (settled) return;
-				tui.stop();
-				tuiStopped = true;
-				const run = spawnSync(editor.command, [...editor.args, tempFile], { stdio: "inherit" });
-				if (run.error) return finish({ ok: false, message: run.error.message });
-				if (run.status !== 0) return finish({ ok: false, cancelled: true });
-				finish({ ok: true, edited: readFileSync(tempFile, "utf8") });
-			} catch (error) {
-				finish({ ok: false, message: error instanceof Error ? error.message : String(error) });
-			} finally {
-				rmSync(tempDirectory, { recursive: true, force: true });
-				if (tuiStopped) {
-					tui.start();
-					tui.requestRender(true);
-				}
-			}
-		});
-
-		return loader;
-	});
-	return result ?? { ok: false, cancelled: true };
-}
-
-async function editAnnotation(ctx: ExtensionCommandContext, prefill: string): Promise<EditorResult> {
-	const commandSpec = process.env.VISUAL?.trim() || process.env.EDITOR?.trim();
-	if (ctx.mode === "tui" && commandSpec) return editExternally(ctx, prefill, commandSpec);
-	if (!ctx.hasUI) return { ok: false, message: "/annotate requires interactive Pi mode." };
-	if (!commandSpec) ctx.ui.notify("No $VISUAL/$EDITOR set; using Pi's built-in editor.", "warning");
-	const edited = await ctx.ui.editor("Annotate recent conversation", prefill);
-	return edited === undefined ? { ok: false, cancelled: true } : { ok: true, edited };
+	}
+	if (useOsc52 && process.stdout.isTTY) {
+		process.stdout.write(`\u001b]52;c;${Buffer.from(text).toString("base64")}\u0007`);
+		return;
+	}
+	throw new Error(`No clipboard command succeeded. ${errors.join("; ")}`);
 }
 
 function journalPath(ctx: { cwd: string }): string {
@@ -171,7 +108,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("annotate", {
-		description: "Annotate the last N user/assistant messages in $EDITOR (default: 6), journal the feedback, and send it",
+		description: "Copy the last N user/assistant messages as Markdown quotes for annotation (default: 6)",
 		handler: async (args, ctx) => {
 			const count = parseCount(args);
 			if (count === null) {
@@ -186,69 +123,11 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			const edited = await editAnnotation(ctx, buildAnnotationTemplate(messages));
-			if (!edited.ok) {
-				if ("cancelled" in edited) ctx.ui.notify("Annotation cancelled.", "info");
-				else ctx.ui.notify(edited.message, "error");
-				return;
-			}
-
-			let annotations;
 			try {
-				annotations = extractAnnotations(edited.edited, messages.map((message) => message.id));
+				copyToClipboard(buildAnnotationTemplate(messages), ctx.mode === "tui");
+				ctx.ui.notify("Copied to clipboard. Paste here or in an editor to annotate.", "info");
 			} catch (error) {
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
-				return;
-			}
-			if (annotations.length === 0) {
-				ctx.ui.notify("No unquoted annotations found; nothing was sent or journaled.", "info");
-				return;
-			}
-
-			const createdAt = new Date().toISOString();
-			const path = journalPath(ctx);
-			const metadata: JournalRecordMetadata = {
-				schema: 1,
-				recordId: randomUUID(),
-				createdAt,
-				sessionId: ctx.sessionManager.getSessionId(),
-				sessionFile: ctx.sessionManager.getSessionFile() ?? null,
-				cwd: ctx.cwd,
-				messageIds: messages.map((message) => message.id),
-			};
-
-			try {
-				appendJournal(path, buildJournalRecord(metadata, edited.edited));
-			} catch (error) {
-				ctx.ui.notify(`Could not write ${path}: ${error instanceof Error ? error.message : String(error)}`, "error");
-				return;
-			}
-
-			pi.appendEntry("pi-annotate-journal", {
-				recordId: metadata.recordId,
-				journalPath: path,
-				messageIds: metadata.messageIds,
-				annotationCount: annotations.length,
-			});
-
-			const prompt = buildPrompt(edited.edited);
-			try {
-				pi.sendMessage(
-					{
-						customType: "pi-annotated-journal",
-						content: prompt,
-						display: false,
-						details: { recordId: metadata.recordId },
-					},
-					{ triggerTurn: true },
-				);
-				ctx.ui.notify(`Saved ${annotations.length} annotation${annotations.length === 1 ? "" : "s"} to ${path}.`, "info");
-			} catch (error) {
-				ctx.ui.setEditorText(prompt);
-				ctx.ui.notify(
-					`Journal saved, but automatic submission failed. The prompt is loaded in Pi's editor: ${error instanceof Error ? error.message : String(error)}`,
-					"error",
-				);
 			}
 		},
 	});
