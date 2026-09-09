@@ -26,12 +26,23 @@ export type JournalRecordMetadata = {
 	messageIds: string[];
 };
 
+export type UserMessageRecordMetadata = {
+	schema: 1;
+	createdAt: string;
+	sessionId: string;
+	sessionFile: string | null;
+	cwd: string;
+	source: "interactive" | "rpc";
+};
+
 const TEMPLATE_HEADING = "# Annotate";
 const SEPARATOR = "---";
 const BODY_START = "<!-- pi-annotate-body -->";
 const BODY_END = "<!-- /pi-annotate-body -->";
 const RECORD_PREFIX = "<!-- pi-annotate-record:";
 const RECORD_END = "<!-- /pi-annotate-record -->";
+const USER_MESSAGE_PREFIX = "<!-- pi-user-message:";
+const USER_MESSAGE_END = "<!-- /pi-user-message -->";
 const LEGACY_MESSAGE_PREFIX = "<!-- pi-annotate-message:";
 
 function encodeMetadata(value: unknown): string {
@@ -192,11 +203,22 @@ export function buildJournalRecord(metadata: JournalRecordMetadata, editedTempla
 	].join("\n");
 }
 
+export function buildUserMessageRecord(metadata: UserMessageRecordMetadata, text: string): string {
+	return [
+		`## ${metadata.createdAt} · User message`,
+		"",
+		`${USER_MESSAGE_PREFIX}${encodeMetadata(metadata)} -->`,
+		quoteMarkdown(text),
+		USER_MESSAGE_END,
+		"",
+	].join("\n");
+}
+
 export function journalHeader(): string {
 	return [
 		"# Human supervision journal",
 		"",
-		"Human-authored annotations captured by `/annotate`. Quoted text is prior conversation; unquoted text is feedback at that location.",
+		"Quoted `User message` records are exact submitted prompts. `/annotate` records contain quoted prior conversation and unquoted feedback.",
 		"",
 	].join("\n");
 }

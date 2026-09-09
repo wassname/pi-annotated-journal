@@ -21,7 +21,11 @@ text near the line it refers to, then save and close. The extension then:
 Nothing is saved or sent if you add no unquoted text. An editor error cancels the operation.
 Without `$VISUAL` or `$EDITOR`, Pi's built-in editor is used.
 
+Every interactive or RPC prompt is also appended as a quoted `User message` record. Extension-injected messages are excluded. The journal is not added to model context automatically; ask Pi to read it when it is useful.
+
 `PI_ANNOTATE_JOURNAL` sets the journal path. Relative paths resolve from Pi's working directory.
+
+<!-- PI -->
 
 ## Export supervision data
 

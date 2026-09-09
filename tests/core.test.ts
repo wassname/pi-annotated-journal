@@ -4,6 +4,7 @@ import {
 	buildAnnotationTemplate,
 	buildJournalRecord,
 	buildPrompt,
+	buildUserMessageRecord,
 	extractAnnotations,
 	journalHeader,
 	parseJournalRecords,
@@ -52,6 +53,21 @@ test("heading and separators are not annotations", () => {
 test("changed separators fail instead of silently losing annotation anchors", () => {
 	const edited = buildAnnotationTemplate(messages).replace("\n---\n", "\n");
 	assert.throws(() => extractAnnotations(edited, messageIds), /separators were changed/);
+});
+
+test("user-message records preserve source text as a quote", () => {
+	const record = buildUserMessageRecord({
+		schema: 1,
+		createdAt: "2026-09-01T00:02:00.000Z",
+		sessionId: "session-1",
+		sessionFile: "/tmp/session.jsonl",
+		cwd: "/tmp/project",
+		source: "interactive",
+	}, "first line\n<!-- /pi-user-message -->\nlast line");
+
+	assert.match(record, /## 2026-09-01T00:02:00.000Z · User message/);
+	assert.match(record, /> first line\n> <!-- \/pi-user-message -->\n> last line/);
+	assert.match(record, /<!-- \/pi-user-message -->\n$/);
 });
 
 test("journal records retain metadata and parsed annotations", () => {

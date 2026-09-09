@@ -13,7 +13,11 @@ test("/annotate journals feedback and sends hidden model context", async () => {
 		const commands = new Map<string, { handler: (args: string, ctx: unknown) => Promise<void> }>();
 		const sent: Array<{ message: { customType: string; content: string; display: boolean }; options: { triggerTurn: boolean } }> = [];
 		const entries: Array<{ type: string; data: unknown }> = [];
+		const inputHandlers: Array<(event: { text: string; source: string }, ctx: unknown) => { action: string }> = [];
 		const pi = {
+			on(_event: string, handler: (event: { text: string; source: string }, ctx: unknown) => { action: string }) {
+				inputHandlers.push(handler);
+			},
 			registerCommand(name: string, options: { handler: (args: string, ctx: unknown) => Promise<void> }) {
 				commands.set(name, options);
 			},
@@ -61,6 +65,14 @@ test("/annotate journals feedback and sends hidden model context", async () => {
 				setEditorText: () => {},
 			},
 		};
+
+		assert.equal(inputHandlers.length, 1);
+		assert.deepEqual(inputHandlers[0]({ text: "first line\nsecond line", source: "interactive" }, ctx), { action: "continue" });
+		const journalAfterInput = readFileSync(process.env.PI_ANNOTATE_JOURNAL, "utf8");
+		assert.match(journalAfterInput, /## .* · User message/);
+		assert.match(journalAfterInput, /> first line\n> second line/);
+		assert.deepEqual(inputHandlers[0]({ text: "hidden extension message", source: "extension" }, ctx), { action: "continue" });
+		assert.equal(readFileSync(process.env.PI_ANNOTATE_JOURNAL, "utf8"), journalAfterInput);
 
 		await commands.get("annotate")?.handler("1", ctx);
 

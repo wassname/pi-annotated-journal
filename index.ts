@@ -9,11 +9,13 @@ import {
 	buildAnnotationTemplate,
 	buildJournalRecord,
 	buildPrompt,
+	buildUserMessageRecord,
 	extractAnnotations,
 	journalHeader,
 	type ConversationMessage,
 	type ConversationRole,
 	type JournalRecordMetadata,
+	type UserMessageRecordMetadata,
 } from "./src/core.ts";
 
 const DEFAULT_MESSAGE_COUNT = 6;
@@ -138,7 +140,7 @@ async function editAnnotation(ctx: ExtensionCommandContext, prefill: string): Pr
 	return edited === undefined ? { ok: false, cancelled: true } : { ok: true, edited };
 }
 
-function journalPath(ctx: ExtensionCommandContext): string {
+function journalPath(ctx: { cwd: string }): string {
 	const configured = process.env.PI_ANNOTATE_JOURNAL?.trim() || DEFAULT_JOURNAL_PATH;
 	return isAbsolute(configured) ? configured : resolve(ctx.cwd, configured);
 }
@@ -154,6 +156,20 @@ function appendJournal(path: string, record: string): void {
 }
 
 export default function (pi: ExtensionAPI) {
+	pi.on("input", (event, ctx) => {
+		if (event.source === "extension") return { action: "continue" };
+		const metadata: UserMessageRecordMetadata = {
+			schema: 1,
+			createdAt: new Date().toISOString(),
+			sessionId: ctx.sessionManager.getSessionId(),
+			sessionFile: ctx.sessionManager.getSessionFile() ?? null,
+			cwd: ctx.cwd,
+			source: event.source,
+		};
+		appendJournal(journalPath(ctx), buildUserMessageRecord(metadata, event.text));
+		return { action: "continue" };
+	});
+
 	pi.registerCommand("annotate", {
 		description: "Annotate the last N user/assistant messages in $EDITOR (default: 6), journal the feedback, and send it",
 		handler: async (args, ctx) => {
