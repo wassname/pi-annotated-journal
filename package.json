@@ -1,5 +1,5 @@
 {
-  "name": "pi-annotated-journal",
+  "name": "@wassname2/pi-annotated-journal",
   "version": "0.1.0",
   "description": "Annotate recent Pi conversation turns and keep the feedback in a Markdown journal",
   "type": "module",

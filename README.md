@@ -1,9 +1,9 @@
-# pi-annotated-journal
+# @wassname2/pi-annotated-journal
 
 Annotate recent Pi messages in `$VISUAL` or `$EDITOR`, and keep the feedback in a Markdown journal.
 
 ```bash
-pi install git:github.com/wassname/pi-annotated-journal
+pi install npm:@wassname2/pi-annotated-journal
 ```
 
 ```text
