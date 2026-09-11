@@ -95,6 +95,11 @@ function appendJournal(path: string, record: string): void {
 export default function (pi: ExtensionAPI) {
 	pi.on("input", (event, ctx) => {
 		if (event.source === "extension") return { action: "continue" };
+		const unquotedLines = event.text.split(/\r?\n/).filter((line) => {
+			const trimmed = line.trim();
+			return trimmed.length > 0 && !trimmed.startsWith(">");
+		});
+		if (unquotedLines.length < 3) return { action: "continue" };
 		const metadata: UserMessageRecordMetadata = {
 			schema: 1,
 			createdAt: new Date().toISOString(),
@@ -103,7 +108,9 @@ export default function (pi: ExtensionAPI) {
 			cwd: ctx.cwd,
 			source: event.source,
 		};
-		appendJournal(journalPath(ctx), buildUserMessageRecord(metadata, event.text));
+		const path = journalPath(ctx);
+		appendJournal(path, buildUserMessageRecord(metadata, event.text));
+		if (ctx.hasUI) ctx.ui.notify(`long user message appended to ${path}`, "info");
 		return { action: "continue" };
 	});
 
