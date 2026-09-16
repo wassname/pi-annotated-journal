@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionCommandContext, SessionEntry } from "@earen
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
+import { homedir } from "node:os";
 import {
 	buildAnnotationTemplate,
 	buildUserMessageRecord,
@@ -92,9 +93,24 @@ function appendJournal(path: string, record: string): void {
 	appendFileSync(path, `${separator}${record}`, "utf8");
 }
 
+function settingsPath(): string {
+	const agentDir = process.env.PI_CODING_AGENT_DIR || resolve(homedir(), ".pi/agent");
+	return resolve(agentDir.replace(/^~(?=\/|$)/, homedir()), "annotate.json");
+}
+
+function autoAnnotateEnabled(): boolean {
+	if (!existsSync(settingsPath())) return false;
+	try {
+		return JSON.parse(readFileSync(settingsPath(), "utf8")).autoAnnotate === true;
+	} catch {
+		// Never record user input when the saved preference cannot be read.
+		return false;
+	}
+}
+
 export default function (pi: ExtensionAPI) {
 	pi.on("input", (event, ctx) => {
-		if (event.source === "extension") return { action: "continue" };
+		if (event.source === "extension" || !autoAnnotateEnabled()) return { action: "continue" };
 		const unquotedLines = event.text.split(/\r?\n/).filter((line) => {
 			const trimmed = line.trim();
 			return trimmed.length > 0 && !trimmed.startsWith(">");
@@ -114,12 +130,44 @@ export default function (pi: ExtensionAPI) {
 		return { action: "continue" };
 	});
 
+	pi.registerCommand("annotate-settings", {
+		description: "Configure automatic annotation (off by default)",
+		getArgumentCompletions: (prefix) => ["auto off", "auto on"]
+			.filter((value) => value.startsWith(prefix))
+			.map((value) => ({ value, label: value })),
+		handler: async (args, ctx) => {
+			const option = args.trim();
+			let choice = option;
+			if (!option) {
+				if (!ctx.hasUI) return;
+				const selected = await ctx.ui.select(
+					`Auto-annotate long user messages: ${autoAnnotateEnabled() ? "on" : "off"} (all projects)`,
+					["auto off", "auto on"],
+				);
+				if (!selected) return;
+				choice = selected;
+			}
+			if (choice !== "auto on" && choice !== "auto off") {
+				ctx.ui.notify("Usage: /annotate-settings [auto on|off]", "warning");
+				return;
+			}
+			try {
+				const path = settingsPath();
+				mkdirSync(dirname(path), { recursive: true });
+				writeFileSync(path, JSON.stringify({ autoAnnotate: choice === "auto on" }, null, 2) + "\n", { mode: 0o600 });
+				ctx.ui.notify(`Auto-annotate ${choice === "auto on" ? "on" : "off"} (saved for all projects).`, "info");
+			} catch (error) {
+				ctx.ui.notify(`Could not save annotation settings: ${error instanceof Error ? error.message : String(error)}`, "error");
+			}
+		},
+	});
+
 	pi.registerCommand("annotate", {
 		description: "Copy the last N user/assistant messages as Markdown quotes for annotation (default: 6)",
 		handler: async (args, ctx) => {
 			const count = parseCount(args);
 			if (count === null) {
-				ctx.ui.notify(`Usage: /annotate [N], where N is 1-${MAX_MESSAGE_COUNT}.`, "warning");
+				ctx.ui.notify(`Usage: /annotate [N], /annotate-settings. N is 1-${MAX_MESSAGE_COUNT}.`, "warning");
 				return;
 			}
 
