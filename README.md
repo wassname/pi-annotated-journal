@@ -9,6 +9,8 @@ pi install npm:@wassname2/pi-annotated-journal
 ```text
 /annotate       # last 6 user/assistant messages
 /annotate 10    # last 10
+/annotate-settings auto on   # record long user messages in this session
+/annotate-settings auto off
 ```
 
 `/annotate` copies blockquoted messages such as:
@@ -18,7 +20,9 @@ pi install npm:@wassname2/pi-annotated-journal
 > more text
 ```
 
-Paste them into Pi or an editor, add unquoted notes, then submit them. Submitted prompts are appended to `docs/human_journal.md` as quoted `User message` records.
+Paste them into Pi or an editor, add unquoted notes, then submit them. Automatic recording is off for new sessions. When enabled, prompts with at least 3 non-empty, unquoted lines are appended to `docs/human_journal.md` as quoted `User message` records.
+
+The preference is saved in the session and survives resume and `/reload`. New sessions and forks start with recording off; the old global `annotate.json` preference is ignored.
 
 `PI_ANNOTATE_JOURNAL` sets the journal path. Relative paths resolve from Pi's working directory.
 

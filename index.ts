@@ -1,8 +1,7 @@
-import type { ExtensionAPI, ExtensionCommandContext, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
-import { homedir } from "node:os";
 import {
 	buildAnnotationTemplate,
 	buildUserMessageRecord,
@@ -93,24 +92,24 @@ function appendJournal(path: string, record: string): void {
 	appendFileSync(path, `${separator}${record}`, "utf8");
 }
 
-function settingsPath(): string {
-	const agentDir = process.env.PI_CODING_AGENT_DIR || resolve(homedir(), ".pi/agent");
-	return resolve(agentDir.replace(/^~(?=\/|$)/, homedir()), "annotate.json");
+interface AnnotateSettings {
+	sessionId: string;
+	autoAnnotate: boolean;
 }
 
-function autoAnnotateEnabled(): boolean {
-	if (!existsSync(settingsPath())) return false;
-	try {
-		return JSON.parse(readFileSync(settingsPath(), "utf8")).autoAnnotate === true;
-	} catch {
-		// Never record user input when the saved preference cannot be read.
-		return false;
+function autoAnnotateEnabled(ctx: Pick<ExtensionContext, "sessionManager">): boolean {
+	const sessionId = ctx.sessionManager.getSessionId();
+	for (const entry of ctx.sessionManager.getEntries().reverse()) {
+		if (entry.type !== "custom" || entry.customType !== "pi-annotate-settings") continue;
+		const settings = entry.data as AnnotateSettings;
+		if (settings.sessionId === sessionId) return settings.autoAnnotate === true;
 	}
+	return false;
 }
 
 export default function (pi: ExtensionAPI) {
 	pi.on("input", (event, ctx) => {
-		if (event.source === "extension" || !autoAnnotateEnabled()) return { action: "continue" };
+		if (event.source === "extension" || !autoAnnotateEnabled(ctx)) return { action: "continue" };
 		const unquotedLines = event.text.split(/\r?\n/).filter((line) => {
 			const trimmed = line.trim();
 			return trimmed.length > 0 && !trimmed.startsWith(">");
@@ -131,7 +130,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("annotate-settings", {
-		description: "Configure automatic annotation (off by default)",
+		description: "Configure automatic annotation for this session (off by default)",
 		getArgumentCompletions: (prefix) => ["auto off", "auto on"]
 			.filter((value) => value.startsWith(prefix))
 			.map((value) => ({ value, label: value })),
@@ -141,7 +140,7 @@ export default function (pi: ExtensionAPI) {
 			if (!option) {
 				if (!ctx.hasUI) return;
 				const selected = await ctx.ui.select(
-					`Auto-annotate long user messages: ${autoAnnotateEnabled() ? "on" : "off"} (all projects)`,
+					`Auto-annotate long user messages: ${autoAnnotateEnabled(ctx) ? "on" : "off"} (this session)`,
 					["auto off", "auto on"],
 				);
 				if (!selected) return;
@@ -152,10 +151,11 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			try {
-				const path = settingsPath();
-				mkdirSync(dirname(path), { recursive: true });
-				writeFileSync(path, JSON.stringify({ autoAnnotate: choice === "auto on" }, null, 2) + "\n", { mode: 0o600 });
-				ctx.ui.notify(`Auto-annotate ${choice === "auto on" ? "on" : "off"} (saved for all projects).`, "info");
+				pi.appendEntry("pi-annotate-settings", {
+					sessionId: ctx.sessionManager.getSessionId(),
+					autoAnnotate: choice === "auto on",
+				} satisfies AnnotateSettings);
+				ctx.ui.notify(`Auto-annotate ${choice === "auto on" ? "on" : "off"} (saved for this session).`, "info");
 			} catch (error) {
 				ctx.ui.notify(`Could not save annotation settings: ${error instanceof Error ? error.message : String(error)}`, "error");
 			}
