@@ -97,24 +97,39 @@ interface AnnotateSettings {
 	autoAnnotate: boolean;
 }
 
-function autoAnnotateEnabled(ctx: Pick<ExtensionContext, "sessionManager">): boolean {
+function annotateSettings(ctx: Pick<ExtensionContext, "sessionManager">): AnnotateSettings | undefined {
 	const sessionId = ctx.sessionManager.getSessionId();
 	for (const entry of ctx.sessionManager.getEntries().reverse()) {
 		if (entry.type !== "custom" || entry.customType !== "pi-annotate-settings") continue;
 		const settings = entry.data as AnnotateSettings;
-		if (settings.sessionId === sessionId) return settings.autoAnnotate === true;
+		if (settings.sessionId === sessionId) return settings;
 	}
-	return false;
+	return undefined;
+}
+
+function autoAnnotateEnabled(ctx: Pick<ExtensionContext, "sessionManager">): boolean {
+	return annotateSettings(ctx)?.autoAnnotate === true;
 }
 
 export default function (pi: ExtensionAPI) {
-	pi.on("input", (event, ctx) => {
-		if (event.source === "extension" || !autoAnnotateEnabled(ctx)) return { action: "continue" };
+	pi.on("input", async (event, ctx) => {
+		if (event.source === "extension") return { action: "continue" };
 		const unquotedLines = event.text.split(/\r?\n/).filter((line) => {
 			const trimmed = line.trim();
 			return trimmed.length > 0 && !trimmed.startsWith(">");
 		});
 		if (unquotedLines.length < 3) return { action: "continue" };
+		if (!annotateSettings(ctx) && ctx.hasUI) {
+			const accepted = await ctx.ui.confirm(
+				"Automatically save long user messages?",
+				`Save this message and future messages with at least 3 non-empty, non-quoted lines to ${journalPath(ctx)}? This applies only to this session. Change it with /annotate-settings.`,
+			);
+			pi.appendEntry("pi-annotate-settings", {
+				sessionId: ctx.sessionManager.getSessionId(),
+				autoAnnotate: accepted,
+			} satisfies AnnotateSettings);
+		}
+		if (!autoAnnotateEnabled(ctx)) return { action: "continue" };
 		const metadata: UserMessageRecordMetadata = {
 			schema: 1,
 			createdAt: new Date().toISOString(),
