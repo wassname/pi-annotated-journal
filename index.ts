@@ -108,18 +108,42 @@ function autoAnnotateEnabled(): boolean {
 	}
 }
 
+function saveAutoAnnotate(enabled: boolean): void {
+	const path = settingsPath();
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, JSON.stringify({ autoAnnotate: enabled }, null, 2) + "\n", { mode: 0o600 });
+}
+
 export default function (pi: ExtensionAPI) {
-	pi.on("input", (event, ctx) => {
-		if (event.source === "extension" || !autoAnnotateEnabled()) return { action: "continue" };
+	const seenLongMessageSessions = new Set<string>();
+
+	pi.on("input", async (event, ctx) => {
+		if (event.source === "extension") return { action: "continue" };
 		const unquotedLines = event.text.split(/\r?\n/).filter((line) => {
 			const trimmed = line.trim();
 			return trimmed.length > 0 && !trimmed.startsWith(">");
 		});
 		if (unquotedLines.length < 3) return { action: "continue" };
+		const sessionId = ctx.sessionManager.getSessionId();
+		let enabled = autoAnnotateEnabled();
+		if (!seenLongMessageSessions.has(sessionId) && (enabled || ctx.hasUI)) {
+			seenLongMessageSessions.add(sessionId);
+			if (!enabled) {
+				const accepted = await ctx.ui.confirm(
+					"Automatically save long user messages?",
+					`Save this message and future messages with at least 3 non-empty, non-quoted lines to ${journalPath(ctx)}? This enables saving for all projects. Change it with /annotate-settings.`,
+				);
+				if (accepted) {
+					saveAutoAnnotate(true);
+					enabled = true;
+				}
+			}
+		}
+		if (!enabled) return { action: "continue" };
 		const metadata: UserMessageRecordMetadata = {
 			schema: 1,
 			createdAt: new Date().toISOString(),
-			sessionId: ctx.sessionManager.getSessionId(),
+			sessionId,
 			sessionFile: ctx.sessionManager.getSessionFile() ?? null,
 			cwd: ctx.cwd,
 			source: event.source,
@@ -152,9 +176,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			try {
-				const path = settingsPath();
-				mkdirSync(dirname(path), { recursive: true });
-				writeFileSync(path, JSON.stringify({ autoAnnotate: choice === "auto on" }, null, 2) + "\n", { mode: 0o600 });
+				saveAutoAnnotate(choice === "auto on");
 				ctx.ui.notify(`Auto-annotate ${choice === "auto on" ? "on" : "off"} (saved for all projects).`, "info");
 			} catch (error) {
 				ctx.ui.notify(`Could not save annotation settings: ${error instanceof Error ? error.message : String(error)}`, "error");
