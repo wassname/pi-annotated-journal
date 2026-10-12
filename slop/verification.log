@@ -1,0 +1,40 @@
+
+> @wassname2/pi-annotated-journal@0.1.1 check
+> npm run typecheck && npm test
+
+
+> @wassname2/pi-annotated-journal@0.1.1 typecheck
+> tsc --noEmit
+
+
+> @wassname2/pi-annotated-journal@0.1.1 test
+> node --experimental-strip-types --test tests/*.test.ts
+
+✔ quoteMarkdown quotes every source line, including blanks and existing quotes (0.973356ms)
+✔ template is only one heading and quoted messages separated by a rule (0.213592ms)
+✔ extractAnnotations returns unquoted blocks with message and line anchors (1.147384ms)
+✔ heading and separators are not annotations (0.153259ms)
+✔ changed separators fail instead of silently losing annotation anchors (0.422126ms)
+✔ user-message records preserve source text as a quote (0.304314ms)
+✔ journal records retain metadata and parsed annotations (1.153786ms)
+✔ source text that resembles journal markers cannot truncate a record (0.230555ms)
+✔ prompt is exactly the edited transcript (0.231928ms)
+✔ exporter combines user messages and anchored journal annotations (54.682378ms)
+▶ first long message asks once, saves only with consent, and remembers the answer after reload
+  ✔ accept (5.266721ms)
+  ✔ decline or dismiss (0.778297ms)
+✔ first long message asks once, saves only with consent, and remembers the answer after reload (7.05911ms)
+✔ records only long unquoted input when enabled for this session (1.541026ms)
+✔ session preference survives resume and tree navigation without enabling another session or fork (2.785382ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 113358.750421
+
+Fresh isolated scheduler startup: success
+Commands: schedule, remind, schedules, schedule-cancel, schedule-enable, schedule-disable, schedule-remove, schedule-cleanup, schedule-widget
+Scheduler stderr: empty
